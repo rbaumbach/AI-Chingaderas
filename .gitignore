@@ -1,0 +1,14 @@
+# macOS
+
+.DS_Store
+
+# JetBrains
+
+.idea
+
+# CodexCage
+
+CodexCage/vendor/codex
+CodexCage/vendor/*.tar.gz
+CodexCage/workspace/*
+!CodexCage/workspace/README.md
