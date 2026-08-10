@@ -5,5 +5,6 @@ CODEX_CAGE_DIR="$(dirname "$SCRIPT_DIR")"
 
 docker run --rm -it \
   --mount type=bind,src="$CODEX_CAGE_DIR/workspace",dst=/workspace \
+  --env CODEX_HOME=/workspace/.codex \
   --workdir /workspace \
   codex-cage sh
