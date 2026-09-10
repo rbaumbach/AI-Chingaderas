@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+
 # frozen_string_literal: true
 
 require "digest"
@@ -14,7 +15,18 @@ LATEST_RELEASE_URL = "https://api.github.com/repos/openai/codex/releases/latest"
 
 # Docker container target:
 # Apple Silicon Mac -> Docker Desktop Linux ARM64
-ASSET_NAME = "codex-aarch64-unknown-linux-musl.tar.gz"
+TARGET = "aarch64-unknown-linux-musl"
+
+ASSETS = [
+  {
+    name: "codex-#{TARGET}.tar.gz",
+    binary_name: "codex"
+  },
+  {
+    name: "codex-code-mode-host-#{TARGET}.tar.gz",
+    binary_name: "codex-code-mode-host"
+  }
+].freeze
 
 # scripts/../vendor
 VENDOR_DIR = File.expand_path("../vendor", __dir__)
@@ -94,8 +106,8 @@ def verify_sha256!(file_path, expected_sha)
   puts "SHA-256 verified successfully."
 end
 
-def extract_binary!(archive_path, destination_path)
-  puts "Extracting executable..."
+def extract_binary!(archive_path, destination_path, binary_name)
+  puts "Extracting #{binary_name}..."
 
   extracted = false
 
@@ -103,6 +115,7 @@ def extract_binary!(archive_path, destination_path)
     Gem::Package::TarReader.new(gzip) do |tar|
       tar.each do |entry|
         next unless entry.file?
+        next unless File.basename(entry.full_name).start_with?(binary_name)
 
         File.open(destination_path, "wb") do |file|
           file.write(entry.read)
@@ -115,9 +128,9 @@ def extract_binary!(archive_path, destination_path)
     end
   end
 
-  raise "Could not find an executable inside #{archive_path}" unless extracted
+  raise "Could not find #{binary_name} inside #{archive_path}" unless extracted
 
-  puts "Extracted Codex binary."
+  puts "Extracted #{binary_name}."
 end
 
 def installed_tag
@@ -130,11 +143,17 @@ def installed_tag
       .delete_suffix(".tar.gz")
 end
 
+def installation_complete?
+  ASSETS.all? do |asset|
+    File.exist?(File.join(VENDOR_DIR, asset.fetch(:binary_name)))
+  end
+end
+
 release = fetch_latest_release
 latest_tag = release.fetch("tag_name")
 current_tag = installed_tag
 
-if current_tag == latest_tag
+if current_tag == latest_tag && installation_complete?
   puts "Codex is already up to date (#{latest_tag})."
   exit 0
 end
@@ -143,72 +162,111 @@ puts "Codex update available:"
 puts "  Current: #{current_tag || "none"}"
 puts "  Latest:  #{latest_tag}"
 
-asset = release.fetch("assets").find do |item|
-  item["name"] == ASSET_NAME
+unless installation_complete?
+  puts "  Installation is missing one or more required Codex binaries."
 end
 
-raise "Could not find #{ASSET_NAME} in release #{latest_tag}" unless asset
+release_assets = release.fetch("assets")
 
-expected_sha = extract_sha256(asset["digest"])
+assets = ASSETS.map do |required_asset|
+  asset = release_assets.find do |item|
+    item["name"] == required_asset.fetch(:name)
+  end
+
+  unless asset
+    raise "Could not find #{required_asset.fetch(:name)} in release #{latest_tag}"
+  end
+
+  required_asset.merge(
+    download_url: asset.fetch("browser_download_url"),
+    expected_sha: extract_sha256(asset["digest"])
+  )
+end
 
 FileUtils.mkdir_p(VENDOR_DIR)
 
 Dir.mktmpdir("codex-update") do |tmp_dir|
-  archive_name = "codex-#{latest_tag}.tar.gz"
+  prepared_assets = assets.map do |asset|
+    binary_name = asset.fetch(:binary_name)
 
-  temporary_archive_path = File.join(tmp_dir, archive_name)
-  temporary_binary_path = File.join(tmp_dir, "codex")
+    archive_name = "#{binary_name}-#{latest_tag}.tar.gz"
+    temporary_archive_path = File.join(tmp_dir, archive_name)
+    temporary_binary_path = File.join(tmp_dir, binary_name)
 
-  puts "Downloading #{ASSET_NAME}..."
+    puts
+    puts "Downloading #{asset.fetch(:name)}..."
 
-  download_file(
-    asset.fetch("browser_download_url"),
-    temporary_archive_path
-  )
+    download_file(
+      asset.fetch(:download_url),
+      temporary_archive_path
+    )
 
-  verify_sha256!(
-    temporary_archive_path,
-    expected_sha
-  )
+    verify_sha256!(
+      temporary_archive_path,
+      asset.fetch(:expected_sha)
+    )
 
-  extract_binary!(
-    temporary_archive_path,
-    temporary_binary_path
-  )
+    extract_binary!(
+      temporary_archive_path,
+      temporary_binary_path,
+      binary_name
+    )
+
+    asset.merge(
+      archive_name: archive_name,
+      temporary_archive_path: temporary_archive_path,
+      temporary_binary_path: temporary_binary_path
+    )
+  end
 
   #
-  # Do not touch the existing installation until:
+  # Do not touch the existing installation until every required asset:
   #
-  # 1. Download succeeded
-  # 2. SHA-256 verification succeeded
-  # 3. Extraction succeeded
+  # 1. Downloaded successfully
+  # 2. Passed SHA-256 verification
+  # 3. Extracted successfully
   #
 
+  puts
   puts "Installing #{latest_tag}..."
 
-  installed_binary_path = File.join(VENDOR_DIR, "codex")
-  installed_archive_path = File.join(VENDOR_DIR, archive_name)
+  prepared_assets.each do |asset|
+    installed_binary_path = File.join(
+      VENDOR_DIR,
+      asset.fetch(:binary_name)
+    )
 
-  FileUtils.mv(
-    temporary_binary_path,
-    installed_binary_path,
-    force: true
-  )
+    installed_archive_path = File.join(
+      VENDOR_DIR,
+      asset.fetch(:archive_name)
+    )
 
-  FileUtils.cp(
-    temporary_archive_path,
-    installed_archive_path
-  )
+    FileUtils.mv(
+      asset.fetch(:temporary_binary_path),
+      installed_binary_path,
+      force: true
+    )
+
+    FileUtils.cp(
+      asset.fetch(:temporary_archive_path),
+      installed_archive_path
+    )
+  end
 
   #
-  # New binary + archive are now installed successfully.
+  # New binaries + archives are now installed successfully.
   # Remove old release archives.
   #
 
-  Dir.glob(File.join(VENDOR_DIR, "codex-rust-v*.tar.gz")).each do |path|
-    next if path == installed_archive_path
+  ASSETS.each do |asset|
+    binary_name = asset.fetch(:binary_name)
+    current_archive_name = "#{binary_name}-#{latest_tag}.tar.gz"
 
-    FileUtils.rm_f(path)
+    Dir.glob(File.join(VENDOR_DIR, "#{binary_name}-rust-v*.tar.gz")).each do |path|
+      next if File.basename(path) == current_archive_name
+
+      FileUtils.rm_f(path)
+    end
   end
 end
 
@@ -217,4 +275,9 @@ puts "Done."
 puts "Codex updated successfully:"
 puts "  #{current_tag || "none"} -> #{latest_tag}"
 puts
-puts "Rebuild CodexCage to use the new binary."
+puts "Installed binaries:"
+ASSETS.each do |asset|
+  puts "  #{asset.fetch(:binary_name)}"
+end
+puts
+puts "Rebuild CodexCage to use the new binaries."

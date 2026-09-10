@@ -17,3 +17,4 @@ RUN apk add --no-cache \
 WORKDIR /tmp/codex-install
 
 COPY vendor/codex /usr/local/bin/codex
+COPY vendor/codex-code-mode-host /usr/local/bin/codex-code-mode-host

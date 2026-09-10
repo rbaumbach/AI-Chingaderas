@@ -9,6 +9,7 @@
 # CodexCage
 
 CodexCage/vendor/codex
+CodexCage/vendor/codex-code-mode-host
 CodexCage/vendor/*.tar.gz
 
 CodexCage/workspace/*
