@@ -12,9 +12,9 @@ RUN apk add --no-cache \
     bubblewrap \
     ruby \
     python3 \
-    py3-pillow
+    py3-pillow \
+    procps
 
-WORKDIR /tmp/codex-install
+COPY vendor/codex /opt/codex
 
-COPY vendor/codex /usr/local/bin/codex
-COPY vendor/codex-code-mode-host /usr/local/bin/codex-code-mode-host
+ENV PATH="/opt/codex/bin:${PATH}"
