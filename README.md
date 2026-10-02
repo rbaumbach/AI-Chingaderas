@@ -46,16 +46,12 @@ Use the provided run script:
 CodexCage/scripts/run.sh
 ```
 
-The script starts a disposable container with:
+The script starts Codex directly inside a disposable container with:
 
 - `CodexCage/workspace` mounted read/write at `/workspace`;
 - `/workspace` as the working directory;
 - `CODEX_HOME` set to `/workspace/.codex`;
-- an interactive Alpine shell.
-
-Once inside the container, run `codex` in the shell to begin.
-
-Note:
+- no inbound ports exposed during normal use.
 
 Codex has normal internet access so it can communicate with OpenAI services, but the container only receives access to host directories that are explicitly mounted into it.
 
@@ -63,9 +59,25 @@ The container is disposable and runs with `--rm`. The workspace is bind-mounted 
 
 ### Codex login
 
-After completing the browser/device-code login inside the shell, Codex stores its authentication state under `CodexCage/workspace/.codex`.
+Codex normally reuses authentication state stored under `CodexCage/workspace/.codex`, so repeated login should not normally be necessary.
 
-Since `/workspace/.codex` is used as `CODEX_HOME`, future containers reuse that state, so repeated login should not normally be necessary.
+When a new browser login is required, run:
+
+```zsh
+CodexCage/scripts/run.sh --login
+```
+
+Login mode temporarily exposes the Codex OAuth callback through the host loopback interface so the browser can return authentication to Codex running inside the container.
+
+The callback is bound only to `127.0.0.1` on the host and is available only while the login container is running. Normal CodexCage runs do not expose this port.
+
+Complete the normal ChatGPT browser login using the URL provided by Codex. After authentication succeeds, Codex stores its authentication state under `CodexCage/workspace/.codex`.
+
+Future normal runs can then use:
+
+```zsh
+CodexCage/scripts/run.sh
+```
 
 ### Updating Codex
 

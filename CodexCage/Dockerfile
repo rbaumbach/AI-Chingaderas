@@ -13,7 +13,8 @@ RUN apk add --no-cache \
     ruby \
     python3 \
     py3-pillow \
-    procps
+    procps \
+    socat
 
 COPY vendor/codex /opt/codex
 
